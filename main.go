@@ -1,5 +1,5 @@
 // Author Gera Jahja
-// Last update : 21/09/2022
+// Last update : 22/09/2022
 package main
 
 import (
@@ -7,7 +7,6 @@ import (
 	"log"
 	"net/http"
 	"strings"
-
 	"github.com/PuerkitoBio/goquery"
 )
 
@@ -15,7 +14,7 @@ var links = []string{}        //global var
 var visitedlinks = []string{} //global var
 // variable declaring the website
 var webpgName = "https://www.monzo.com/" //:= declares and assigns the variable , whereas = is simply assignment
-var domainName = strings.TrimPrefix(webpgName, "https://www")
+var domainName = "https://monzo.com"
 
 func main() {
 	links = append(links, webpgName)
@@ -69,16 +68,17 @@ func getLinks() { //recursive function... very slow ;/ passed on 21/09/2022
 }
 
 // Looks through the element that has been passed, and sees whether 'href' is present
-// Tested : passed on 20/09/2022
+// Tested : passed on 22/09/2022
 func hrefCheck(index int, element *goquery.Selection) {
 
 	// See if the href attribute exists on the element
 	href, exists := element.Attr("href") //accesses the attribute that has the tag <a href... tags (which store links in HTML)
 	if exists {
-		if strings.Contains(href, domainName) {
-			if !(strings.Contains(href, "/u/")) && !(strings.Contains(href, "/t/")) {
-				links = append(links, href)
-			}
+		if strings.HasPrefix(href, domainName) {
+			links = append(links, href)
+		}
+		if strings.HasPrefix(href, "/") { //relative links
+			links = append(links, domainName+href)
 		}
 	}
 }
