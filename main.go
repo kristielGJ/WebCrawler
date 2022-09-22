@@ -1,5 +1,5 @@
 // Author Gera Jahja
-// Last update : 20/09/2022
+// Last update : 21/09/2022
 package main
 
 import (
@@ -102,3 +102,4 @@ func removeDuplicateStr(strSlice []string) []string {
 	}
 	return list
 }
+
