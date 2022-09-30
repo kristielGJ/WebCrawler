@@ -1,105 +1,121 @@
 // Author Gera Jahja
-// Last update : 22/09/2022
+// Last update : 30/09/2022
 package main
 
 import (
+	"bufio"
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 	"strings"
+	"sync"
+	"time"
+
 	"github.com/PuerkitoBio/goquery"
 )
+//map of all links on website
+var alllinks = make(map[string]bool)
 
-var links = []string{}        //global var
-var visitedlinks = []string{} //global var
 // variable declaring the website
-var webpgName = "https://www.monzo.com/" //:= declares and assigns the variable , whereas = is simply assignment
-var domainName = "https://monzo.com"
+var webpgName = "https://monzo.com" //:= declares and assigns the variable , whereas = is simply assignment
 
+//devlares the waitgroup used in func main() and func getLinks()
+var wg sync.WaitGroup
+
+/*
+   Tracks time taken to run the program
+   Initial call to getLinks()
+   adds the web domain as the first value in the map alllinks to be crawled 
+*/
 func main() {
-	links = append(links, webpgName)
+	start := time.Now()
+	alllinks[webpgName+"/"] = true
+
 	getLinks()
+	wg.Wait()
+
+	elapsed := time.Since(start)
+	log.Printf("Time taken: %s", elapsed)
 }
 
-func getLinks() { //recursive function... very slow ;/ passed on 21/09/2022
-	links = removeDuplicateStr(links)
-	visitedlinks = removeDuplicateStr(visitedlinks)
-	i := 0
-	for _, link := range links { //infinite loop
-		response, e := http.Get(link)
-		GetCheck(e)
-		defer response.Body.Close()                                 // whenthe body of a website is retrieved it must be closed.
-		document, e := goquery.NewDocumentFromReader(response.Body) // Create a goquery document from the HTTP response
-		GetCheck(e)
-		// Find all links and verify/print them with the function elementIsPresent    // defined earlier
-		document.Find("a").Each(hrefCheck) //displays all links on a single website , by filtering tags by <a>
+/*  Creates a goquery document from the HTTP response
+	gets all links on a single website , by filtering tags by <a>
+	then calls itself so that the updated map of links is crawled also
+	Uses waitgroups for concurrency
+*/
+func getLinks() { 
 
-		visitedlinks = append(visitedlinks, link)
-		linkNo := len(visitedlinks)
-		linktoseeNo := len(links)
-
-		fmt.Println(link) //prints links during runtime
-		fmt.Println("Visited: ", linkNo)
-		fmt.Println("Links to Crawl: ", linktoseeNo)
-		fmt.Println("")
-
-		// Remove the element
-		copy(links[i:], links[i+1:]) // Shift a[i+1:] left one index.
-		links[len(links)-1] = ""     // Erase last element (write zero value).
-		links = links[:len(links)-1] // Truncate slice.
-		i += 1
-
-		if len(links) > 0 {
-			getLinks()
+	for link, inMap := range alllinks {
+		wg.Add(1)
+		if inMap {
+			response, e := http.Get(link)
+			if e != nil {
+				break
+				//log.Fatal(e)
+			}
+			defer response.Body.Close()                                 
+			document, e := goquery.NewDocumentFromReader(response.Body) 
+			if e != nil {
+				break
+				//log.Fatal(e)
+			}
+			document.Find("a").Each(hrefCheck) 
 		} else {
-			fmt.Println("")
-			fmt.Println("Overall Web Crawler Result:")
-			fmt.Println("Visited: ", linkNo)
-			fmt.Println("Links discovered:") //should be empty!
-			for _, link := range links {
-				fmt.Println(link)
-			}
-			fmt.Println("Links discovered and visited:")
-			for _, link := range visitedlinks {
-				fmt.Println(link)
-			}
+			break
 		}
 	}
+	go getLinks()
+	wg.Done()
 }
 
-// Looks through the element that has been passed, and sees whether 'href' is present
-// Tested : passed on 22/09/2022
+/* 
+   Looks through the element that has been passed, and sees whether 'href' is present
+   accesses the attribute that has the tag <a href... tags (which store links in HTML)
+   writes the links and relative links in an document (see func writeLinkToFile)
+   adds link to map allLinks
+   uses locks for concurrency
+   ensures no duplicate values are present in the map
+*/
 func hrefCheck(index int, element *goquery.Selection) {
-
-	// See if the href attribute exists on the element
-	href, exists := element.Attr("href") //accesses the attribute that has the tag <a href... tags (which store links in HTML)
+	href, exists := element.Attr("href")
+	var m sync.RWMutex
 	if exists {
-		if strings.HasPrefix(href, domainName) {
-			links = append(links, href)
-		}
-		if strings.HasPrefix(href, "/") { //relative links
-			links = append(links, domainName+href)
+		if !(strings.Contains(href, "email-protection")) {
+			if (!alllinks[href]) && (!alllinks[webpgName+href]) {
+				if strings.HasPrefix(href, webpgName) {
+					m.RLock()
+					alllinks[href] = true
+					go writeLinkToFile(href)
+					fmt.Println(href)
+					m.RUnlock()
+					return
+				}
+				if strings.HasPrefix(href, "/") {
+					m.RLock()
+					alllinks[webpgName+href] = true
+					go writeLinkToFile(webpgName + href)
+					fmt.Println(webpgName + href)
+					m.RUnlock()
+					return
+				}
+			} else {
+				return
+			}
 		}
 	}
 }
 
-func GetCheck(err error) {
-	//http.Get returns a response and an error so we have to handle the error with an if statement
+// 	Writes a string (passes as a parameter) on a new line in a txt file named Crawled
+func writeLinkToFile(data string) {
+	file, err := os.OpenFile("Crawled.txt", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+
 	if err != nil {
-		log.Fatal(err)
+		log.Fatalf("failed creating file: %s", err)
 	}
-}
 
-// https://stackoverflow.com/questions/66643946/how-to-remove-duplicates-strings-or-int-from-slice-in-go
-func removeDuplicateStr(strSlice []string) []string {
-	allKeys := make(map[string]bool)
-	list := []string{}
-	for _, item := range strSlice {
-		if _, value := allKeys[item]; !value {
-			allKeys[item] = true
-			list = append(list, item)
-		}
-	}
-	return list
+	datawriter := bufio.NewWriter(file)
+	_, _ = datawriter.WriteString(data + "\n")
+	datawriter.Flush()
+	file.Close()
 }
-
